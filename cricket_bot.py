@@ -7,7 +7,7 @@ from telegram import Bot
 BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 CHANNEL_ID = "-1002481582963"  # Replace with your channel ID
 
-# Cricket & Bookie API (Replace with working APIs)
+# Cricket & Bookie API (Replace with valid sources)
 CRICKET_API_URL = "https://www.cricketlineguru.com/"  # Placeholder
 BOOKIE_API_URL = "https://www.southbook.in/"  # Placeholder
 
@@ -16,18 +16,27 @@ bot = Bot(token=BOT_TOKEN)
 logging.basicConfig(level=logging.INFO)
 
 async def get_data(api_url):
-    """Fetch JSON data from an API."""
+    """Fetch JSON data from an API with debugging."""
     try:
         response = requests.get(api_url, timeout=10)
-        response.raise_for_status()  # Raise error if request fails
-        data = response.json()
-        if not data:  # Check if API returned empty data
-            raise ValueError("Empty API response")
-        return data
+        logging.info(f"Fetching data from: {api_url}")
+        logging.info(f"Response Status Code: {response.status_code}")
+        logging.info(f"Response Content: {response.text}")  # Debugging line
+        
+        response.raise_for_status()  # Raise HTTP error if exists
+        
+        # Try to parse JSON
+        try:
+            data = response.json()
+            if not data:
+                raise ValueError("Empty API response")
+            return data
+        except ValueError:
+            logging.error(f"Invalid JSON response from {api_url}")
+            return None
+        
     except requests.exceptions.RequestException as e:
         logging.error(f"API Error ({api_url}): {e}")
-    except ValueError as e:
-        logging.error(f"Invalid API response: {e}")
     return None
 
 async def format_message():
