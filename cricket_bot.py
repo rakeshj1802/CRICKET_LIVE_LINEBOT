@@ -14,12 +14,24 @@ headers = {
 TELEGRAM_BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 TELEGRAM_CHANNEL_ID = "-1002481582963"
 
-# Fetch upcoming matches
-response = requests.get(url, headers=headers)
-matches = response.json()
+# Function to fetch matches with retry logic
+def fetch_matches():
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 429:  # Too many requests
+            print("Rate limit exceeded. Retrying after delay...")
+            time.sleep(60)  # Wait for 60 seconds before retrying
+            return fetch_matches()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
 
-# Check if the response is a list
-if isinstance(matches, list):
+# Fetch upcoming matches
+matches = fetch_matches()
+
+# Check if the response is valid
+if matches and isinstance(matches, list):
     # Define the start date
     start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
 
