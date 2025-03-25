@@ -5,17 +5,20 @@ from telegram import Bot
 # API details
 url = "https://cricket-live-line1.p.rapidapi.com/upcomingMatches"
 headers = {
-    "x-rapidapi-key": "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd",  # Replace with your actual API key
+    "x-rapidapi-key": "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd",
     "x-rapidapi-host": "cricket-live-line1.p.rapidapi.com"
 }
 
 # Telegram bot details
 TELEGRAM_BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
-TELEGRAM_CHANNEL_ID = "-1002481582963" # Replace with your channel ID
+TELEGRAM_CHANNEL_ID = "-1002481582963"
 
 # Fetch upcoming matches
 response = requests.get(url, headers=headers)
 matches = response.json()
+
+# Print the raw response to understand the structure
+print(matches)
 
 # Define the start date
 start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
@@ -23,6 +26,7 @@ start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
 # Filter for IPL matches starting from the specified date
 ipl_matches = []
 for match in matches:
+    # Adjust these keys based on the actual response structure
     league = match.get("league", "")
     match_date_str = match.get("date", "")
     
