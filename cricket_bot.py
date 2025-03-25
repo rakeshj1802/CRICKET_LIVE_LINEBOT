@@ -1,65 +1,51 @@
-import requests
-from datetime import datetime
+import feedparser
 from telegram import Bot
-import time
-
-# API details
-url = "https://cricket-live-line1.p.rapidapi.com/upcomingMatches"
-headers = {
-    "x-rapidapi-key": "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd",
-    "x-rapidapi-host": "cricket-live-line1.p.rapidapi.com"
-}
 
 # Telegram bot details
 TELEGRAM_BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 TELEGRAM_CHANNEL_ID = "-1002481582963"
 
-# Function to fetch matches with retry logic
-def fetch_matches():
-    try:
-        response = requests.get(url, headers=headers)
-        if response.status_code == 429:  # Too many requests
-            print("Rate limit exceeded. Retrying after delay...")
-            time.sleep(60)  # Wait for 60 seconds before retrying
-            return fetch_matches()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-        return None
+# Default live feed URL
+_live_scores_xml = 'http://static.espncricinfo.com/rss/livescores.xml'
 
-# Fetch upcoming matches
-matches = fetch_matches()
+class CricInfo:
+    def __init__(self, live_scores_xml=_live_scores_xml):
+        self.live_scores_xml = live_scores_xml
+        self.matches = []
 
-# Check if the response is valid
-if matches and isinstance(matches, list):
-    # Define the start date
-    start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
+    def update_live_scores(self):
+        # Parse the RSS feed
+        feed = feedparser.parse(self.live_scores_xml)
+        for entry in feed.entries:
+            match = {
+                'title': entry.title,
+                'description': entry.description,
+                'link': entry.link,
+                'guid': entry.id
+            }
+            self.matches.append(match)
 
-    # Filter for IPL matches starting from the specified date
-    ipl_matches = []
-    for match in matches:
-        league = match.get("league", "")
-        match_date_str = match.get("date", "")
-        
-        try:
-            match_date = datetime.strptime(match_date_str, "%d/%m/%Y")
-        except ValueError:
-            continue
+    def __iter__(self):
+        return iter(self.matches)
 
-        if "IPL" in league and match_date >= start_date:
-            ipl_matches.append(match)
-
-    # Extract match IDs
-    ipl_match_ids = [match["id"] for match in ipl_matches]
-
+def send_to_telegram(matches):
     # Initialize Telegram bot
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-    # Send match IDs to Telegram channel
-    if ipl_match_ids:
-        message = f"IPL Match IDs from 25/03/2025: {ipl_match_ids}"
+    
+    # Send match details to Telegram channel
+    for match in matches:
+        message = (
+            f"Title: {match['title']}\n"
+            f"Description: {match['description']}\n"
+            f"Link: {match['link']}\n"
+            f"GUID: {match['guid']}\n"
+        )
         bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
-    else:
-        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text="No IPL matches found from the specified date.")
-else:
-    print("Error fetching matches:", matches)
+
+if __name__ == '__main__':
+    # Instantiate and update live scores
+    matches = CricInfo()
+    matches.update_live_scores()
+    
+    # Send live match updates to Telegram
+    send_to_telegram(matches)
