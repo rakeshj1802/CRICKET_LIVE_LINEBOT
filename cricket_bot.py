@@ -8,29 +8,36 @@ from telegram.error import RetryAfter
 BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 CHANNEL_ID = "-1002481582963"
 
-# Cricket API Endpoint (Change if needed)
-API_URL = "https://api.cricapi.com/v1/currentiplMatches"
-API_KEY="733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
-# Initialize the Telegram Bot
+# Cricket API Details
+API_URL = "https://api.cricapi.com/v1/currentMatches"
+API_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
+
+# Initialize Telegram Bot
 bot = Bot(token=BOT_TOKEN)
 
 async def get_cricket_updates():
     """Fetch live IPL matches from the API."""
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(API_URL, timeout=10)
+            response = await client.get(f"{API_URL}?apikey={API_KEY}", timeout=10)
             response.raise_for_status()
             data = response.json()
 
-            if not data or "matches" not in data:
-                logging.error("Invalid API response.")
+            # Log full response for debugging
+            logging.info(f"API Response: {data}")
+
+            if not data or "data" not in data:
+                logging.error("Invalid API response format.")
                 return None
 
-            # Filter only IPL matches
-            ipl_matches = [match for match in data["matches"] if "IPL" in match.get("series", "")]
+            # Filter IPL matches
+            ipl_matches = [
+                match for match in data["data"] 
+                if "Indian Premier League" in match.get("series", {}).get("name", "")
+            ]
 
             if not ipl_matches:
-                logging.info("No IPL matches found.")
+                logging.info("No ongoing IPL matches found.")
                 return None
 
             return ipl_matches
@@ -48,12 +55,19 @@ def format_message(matches):
     """Format IPL match updates into readable messages."""
     messages = []
     for match in matches:
+        team1 = match.get("teamInfo", [{}])[0].get("name", "Unknown")
+        team2 = match.get("teamInfo", [{}])[1].get("name", "Unknown")
+        venue = match.get("venue", "Unknown")
+        start_time = match.get("dateTimeGMT", "TBA")
+        score = f"{match.get('score', 'N/A')} / {match.get('wickets', 'N/A')}"
+        match_url = match.get("matchLink", "No link")
+
         msg = (
-            f"🏏 *{match['team1']} vs {match['team2']}*\n"
-            f"📍 *Venue:* {match.get('venue', 'Unknown')}\n"
-            f"🕒 *Time:* {match.get('start_time', 'TBA')}\n"
-            f"📊 *Score:* {match.get('score', 'N/A')}\n"
-            f"🔗 *More Info:* {match.get('match_url', 'No link')}"
+            f"🏏 *{team1} vs {team2}*\n"
+            f"📍 *Venue:* {venue}\n"
+            f"🕒 *Time:* {start_time}\n"
+            f"📊 *Score:* {score}\n"
+            f"🔗 *More Info:* [Click Here]({match_url})"
         )
         messages.append(msg)
     return messages
@@ -63,7 +77,7 @@ async def post_update():
     while True:
         matches = await get_cricket_updates()
 
-        if matches is None:  # Prevents crashes
+        if matches is None:
             logging.warning("No IPL match data. Retrying in 30 seconds...")
             await asyncio.sleep(30)
             continue
@@ -79,7 +93,7 @@ async def post_update():
                     logging.warning(f"Flood control hit. Retrying in {e.retry_after} sec...")
                     await asyncio.sleep(e.retry_after + 2)  # Wait before retrying
 
-        await asyncio.sleep(5)  # Fetch updates every 5 minutes
+        await asyncio.sleep(300)  # Fetch updates every 5 minutes
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
