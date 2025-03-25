@@ -1,1 +1,3 @@
-worker: python cricket_bot.py
+requests
+flask
+python-dotenv
