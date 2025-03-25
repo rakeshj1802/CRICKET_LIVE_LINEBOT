@@ -12,34 +12,37 @@ TELEGRAM_CHANNEL_ID = "-1002481582963"
 CRICAPI_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
 MATCH_URL = f"https://api.cricapi.com/v1/currentMatches?apikey={CRICAPI_KEY}"
 
+
+
+# Function to fetch live IPL match details
 def get_live_ipl_match():
-    url = f"https://cricapi.com/api/matches?apikey={CRICKET_API_KEY}"
+    url = f"https://api.cricapi.com/v1/cricScore?apikey={CRICAPI_KEY}"
     response = requests.get(url).json()
 
-    for match in response["matches"]:
-        if "Indian Premier League" in match["type"] and match["matchStarted"]:
-            return match["unique_id"]  # Return IPL match ID
+    for match in response["data"]:
+        if "IPL" in match["series"] and match["matchStarted"]:
+            return match["id"]  # Return IPL match ID
 
     return None  # No live IPL match
 
 # Function to fetch match score
 def get_match_score(match_id):
-    url = f"https://cricapi.com/api/cricketScore?apikey={CRICKET_API_KEY}&unique_id={match_id}"
+    url = f"https://api.cricapi.com/v1/cricScore?apikey={CRICAPI_KEY}&id={match_id}"
     response = requests.get(url).json()
     
-    if "score" in response:
-        return response["score"]  # Return match score
+    if "score" in response["data"]:
+        return response["data"]["score"]  # Return match score
     return "Score not available"
 
 # Function to fetch today's completed IPL matches
 def get_completed_matches():
-    url = f"https://cricapi.com/api/matchCalendar?apikey={CRICKET_API_KEY}"
+    url = f"https://api.cricapi.com/v1/matchCalendar?apikey={CRICAPI_KEY}"
     response = requests.get(url).json()
 
     completed_matches = []
     for match in response["data"]:
-        if "Indian Premier League" in match["name"] and match["date"] == time.strftime("%Y-%m-%d"):
-            completed_matches.append(f"🏏 {match['name']} ✅ {match['date']}")
+        if "IPL" in match["series"] and match["date"] == time.strftime("%Y-%m-%d"):
+            completed_matches.append(f"🏏 {match['series']} ✅ {match['date']}")
 
     return completed_matches
 
