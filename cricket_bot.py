@@ -1,73 +1,83 @@
 import requests
 import time
-import logging
 from telegram import Bot
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# 🔹 RapidAPI Credentials
+RAPIDAPI_KEY = "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd"
+RAPIDAPI_HOST = "cricket-live-line1.p.rapidapi.com"
 
-# Telegram Bot Credentials
+# 🔹 Telegram Bot Credentials
 TELEGRAM_BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 TELEGRAM_CHANNEL_ID = "-1002481582963"
 
-# Cricket API Credentials
-API_URL = "https://cricket-live-line1.p.rapidapi.com/home"
+# 🔹 API URLs
+LIVE_MATCHES_URL = "https://cricket-live-line1.p.rapidapi.com/matches"
+BALL_BY_BALL_URL = "https://cricket-live-line1.p.rapidapi.com/matchBallByBall"
+
+# 🔹 Headers for API requests
 HEADERS = {
-    "x-rapidapi-key": "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd",
-    "x-rapidapi-host": "cricket-live-line1.p.rapidapi.com"
+    "x-rapidapi-key": RAPIDAPI_KEY,
+    "x-rapidapi-host": RAPIDAPI_HOST
 }
 
-# Initialize Telegram bot
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+def get_live_match_id():
+    """Fetch all live matches and extract the match ID for an IPL match."""
+    response = requests.get(LIVE_MATCHES_URL, headers=HEADERS)
+    
+    if response.status_code == 200:
+        matches = response.json().get("data", [])
+        
+        for match in matches:
+            if "IPL" in match.get("series", ""):  # Filter only IPL matches
+                print(f"🏏 Match Found: {match['team_1']} vs {match['team_2']}")
+                print(f"📌 Match ID: {match['match_id']}")
+                return match['match_id']
+        
+        print("❌ No IPL match found")
+        return None
+    else:
+        print(f"❌ API Error: {response.status_code}")
+        return None
 
-def get_live_matches():
-    """Fetch live match data from the API."""
-    try:
-        response = requests.get(API_URL, headers=HEADERS)
-        if response.status_code == 200:
-            data = response.json()
-            return data
+def get_ball_by_ball_updates(match_id):
+    """Fetch ball-by-ball commentary for the given match ID."""
+    params = {"match_id": match_id}
+    response = requests.get(BALL_BY_BALL_URL, headers=HEADERS, params=params)
+
+    if response.status_code == 200:
+        balls = response.json().get("data", [])
+        
+        if balls:
+            latest_ball = balls[0]  # Get the latest delivery
+            message = f"🏏 {latest_ball['over']} Over | {latest_ball['ball']} Ball\n" \
+                      f"⚡ {latest_ball['commentary']}\n" \
+                      f"🎯 Runs: {latest_ball['run']}, Wicket: {latest_ball['wicket']}"
+            return message
         else:
-            logging.error(f"API Error: {response.status_code} - {response.text}")
-            return None
-    except requests.RequestException as e:
-        logging.error(f"Request failed: {e}")
+            return "No recent ball updates available."
+    else:
+        print(f"❌ API Error: {response.status_code}")
         return None
 
 def send_telegram_message(message):
-    """Send a message to the Telegram channel."""
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
-        logging.info("Message sent successfully!")
-    except Exception as e:
-        logging.error(f"Failed to send message: {e}")
+    """Send message to the Telegram channel."""
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
 
-def process_live_matches():
-    """Fetch and send live cricket match updates to Telegram."""
-    matches = get_live_matches()
+def main():
+    """Main function to fetch live IPL match updates."""
+    match_id = get_live_match_id()
     
-    if not matches:
-        send_telegram_message("⚠ No live matches found or API error occurred.")
-        return
-    
-    match_list = matches.get("data", [])
-    if not match_list:
-        send_telegram_message("⚠ No live matches available at the moment.")
-        return
-
-    for match in match_list:
-        match_message = (
-            f"🏏 *Live Match Update*\n"
-            f"📢 {match.get('matchTitle', 'Unknown Match')}\n"
-            f"📅 Date: {match.get('date', 'N/A')}\n"
-            f"🏟 Venue: {match.get('venue', 'N/A')}\n"
-            f"🔴 Status: {match.get('matchStatus', 'N/A')}\n"
-            f"🏆 Series: {match.get('series', 'N/A')}\n"
-        )
-        send_telegram_message(match_message)
+    if match_id:
+        print(f"✅ Fetching live updates for match ID {match_id}...")
+        while True:
+            update = get_ball_by_ball_updates(match_id)
+            if update:
+                print(update)
+                send_telegram_message(update)
+            time.sleep(30)  # Fetch every 30 seconds
+    else:
+        print("❌ No live IPL matches available.")
 
 if __name__ == "__main__":
-    logging.info("Cricket bot started...")
-    while True:
-        process_live_matches()
-        time.sleep(60)  # Fetch updates every 60 seconds
+    main()
