@@ -1,101 +1,70 @@
-import asyncio
+import requests
+import time
 import logging
-import httpx
 from telegram import Bot
-from telegram.error import RetryAfter
 
 # Telegram Bot Token and Channel ID
-BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
-CHANNEL_ID = "-1002481582963"
+TELEGRAM_BOT_TOKEN ="7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
+TELEGRAM_CHANNEL_ID = "-1002481582963"
 
-# Cricket API Details
-API_URL = "https://api.cricapi.com/v1/currentMatches?apikey=733fc7f6-fc1b-46e6-8f67-d45a01d44a6a&offset=0"
-API_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
 
-# Initialize Telegram Bot
-bot = Bot(token=BOT_TOKEN)
+# Cricket API Key (Replace with your valid API key)
+CRICAPI_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
+MATCH_URL = f"https://api.cricapi.com/v1/currentMatches?apikey={CRICAPI_KEY}"
 
-async def get_cricket_updates():
-    """Fetch live IPL matches from the API."""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{API_URL}?apikey={API_KEY}", timeout=10)
-            response.raise_for_status()
-            data = response.json()
+def get_live_ipl_match():
+    url = f"https://cricapi.com/api/matches?apikey={CRICKET_API_KEY}"
+    response = requests.get(url).json()
 
-            # Log full response for debugging
-            logging.info(f"API Response: {data}")
+    for match in response["matches"]:
+        if "Indian Premier League" in match["type"] and match["matchStarted"]:
+            return match["unique_id"]  # Return IPL match ID
 
-            if not data or "data" not in data:
-                logging.error("Invalid API response format.")
-                return None
+    return None  # No live IPL match
 
-            # Filter IPL matches
-            ipl_matches = [
-                match for match in data["data"] 
-                if "Indian Premier League" in match.get("series", {}).get("name", "")
-            ]
+# Function to fetch match score
+def get_match_score(match_id):
+    url = f"https://cricapi.com/api/cricketScore?apikey={CRICKET_API_KEY}&unique_id={match_id}"
+    response = requests.get(url).json()
+    
+    if "score" in response:
+        return response["score"]  # Return match score
+    return "Score not available"
 
-            if not ipl_matches:
-                logging.info("No ongoing IPL matches found.")
-                return None
+# Function to fetch today's completed IPL matches
+def get_completed_matches():
+    url = f"https://cricapi.com/api/matchCalendar?apikey={CRICKET_API_KEY}"
+    response = requests.get(url).json()
 
-            return ipl_matches
+    completed_matches = []
+    for match in response["data"]:
+        if "Indian Premier League" in match["name"] and match["date"] == time.strftime("%Y-%m-%d"):
+            completed_matches.append(f"🏏 {match['name']} ✅ {match['date']}")
 
-    except httpx.HTTPStatusError as e:
-        logging.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
-    except httpx.RequestError as e:
-        logging.error(f"Request Error: {e}")
-    except Exception as e:
-        logging.error(f"Unexpected Error: {e}")
+    return completed_matches
 
-    return None
+# Function to send message to Telegram Channel
+def send_to_telegram(message):
+    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = {"chat_id": CHANNEL_ID, "text": message}
+    requests.post(telegram_url, data=data)
 
-def format_message(matches):
-    """Format IPL match updates into readable messages."""
-    messages = []
-    for match in matches:
-        team1 = match.get("teamInfo", [{}])[0].get("name", "Unknown")
-        team2 = match.get("teamInfo", [{}])[1].get("name", "Unknown")
-        venue = match.get("venue", "Unknown")
-        start_time = match.get("dateTimeGMT", "TBA")
-        score = f"{match.get('score', 'N/A')} / {match.get('wickets', 'N/A')}"
-        match_url = match.get("matchLink", "No link")
+# Main Function
+def main():
+    live_match_id = get_live_ipl_match()
+    if live_match_id:
+        match_score = get_match_score(live_match_id)
+        send_to_telegram(f"📢 LIVE IPL MATCH UPDATE:\n{match_score}")
+    else:
+        send_to_telegram("❌ No live IPL matches right now.")
 
-        msg = (
-            f"🏏 *{team1} vs {team2}*\n"
-            f"📍 *Venue:* {venue}\n"
-            f"🕒 *Time:* {start_time}\n"
-            f"📊 *Score:* {score}\n"
-            f"🔗 *More Info:* [Click Here]({match_url})"
-        )
-        messages.append(msg)
-    return messages
+    completed_matches = get_completed_matches()
+    if completed_matches:
+        send_to_telegram("✅ TODAY'S COMPLETED IPL MATCHES:\n" + "\n".join(completed_matches))
+    else:
+        send_to_telegram("❌ No completed IPL matches today.")
 
-async def post_update():
-    """Send updates to Telegram while handling rate limits."""
-    while True:
-        matches = await get_cricket_updates()
-
-        if matches is None:
-            logging.warning("No IPL match data. Retrying in 30 seconds...")
-            await asyncio.sleep(30)
-            continue
-
-        new_messages = format_message(matches)
-
-        if new_messages:
-            for msg in new_messages:
-                try:
-                    await bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode="Markdown")
-                    await asyncio.sleep(5)  # Prevent flood limit
-                except RetryAfter as e:
-                    logging.warning(f"Flood control hit. Retrying in {e.retry_after} sec...")
-                    await asyncio.sleep(e.retry_after + 2)  # Wait before retrying
-
-        await asyncio.sleep(300)  # Fetch updates every 5 minutes
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(post_update())
+# Run the script every 5 minutes
+while True:
+    main()
+    time.sleep(300)  # Wait 5 minutes before fetching again
