@@ -1,6 +1,7 @@
 import requests
 from datetime import datetime
 from telegram import Bot
+import time
 
 # API details
 url = "https://cricket-live-line1.p.rapidapi.com/upcomingMatches"
@@ -17,36 +18,36 @@ TELEGRAM_CHANNEL_ID = "-1002481582963"
 response = requests.get(url, headers=headers)
 matches = response.json()
 
-# Print the raw response to understand the structure
-print(matches)
+# Check if the response is a list
+if isinstance(matches, list):
+    # Define the start date
+    start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
 
-# Define the start date
-start_date = datetime.strptime("25/03/2025", "%d/%m/%Y")
+    # Filter for IPL matches starting from the specified date
+    ipl_matches = []
+    for match in matches:
+        league = match.get("league", "")
+        match_date_str = match.get("date", "")
+        
+        try:
+            match_date = datetime.strptime(match_date_str, "%d/%m/%Y")
+        except ValueError:
+            continue
 
-# Filter for IPL matches starting from the specified date
-ipl_matches = []
-for match in matches:
-    # Adjust these keys based on the actual response structure
-    league = match.get("league", "")
-    match_date_str = match.get("date", "")
-    
-    try:
-        match_date = datetime.strptime(match_date_str, "%d/%m/%Y")
-    except ValueError:
-        continue
+        if "IPL" in league and match_date >= start_date:
+            ipl_matches.append(match)
 
-    if "IPL" in league and match_date >= start_date:
-        ipl_matches.append(match)
+    # Extract match IDs
+    ipl_match_ids = [match["id"] for match in ipl_matches]
 
-# Extract match IDs
-ipl_match_ids = [match["id"] for match in ipl_matches]
+    # Initialize Telegram bot
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Initialize Telegram bot
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-# Send match IDs to Telegram channel
-if ipl_match_ids:
-    message = f"IPL Match IDs from 25/03/2025: {ipl_match_ids}"
-    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+    # Send match IDs to Telegram channel
+    if ipl_match_ids:
+        message = f"IPL Match IDs from 25/03/2025: {ipl_match_ids}"
+        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
+    else:
+        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text="No IPL matches found from the specified date.")
 else:
-    bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text="No IPL matches found from the specified date.")
+    print("Error fetching matches:", matches)
