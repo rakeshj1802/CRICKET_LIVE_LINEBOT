@@ -1,6 +1,5 @@
-
 import requests
-import time
+import asyncio
 import logging
 from telegram import Bot
 
@@ -8,7 +7,7 @@ from telegram import Bot
 BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 CHANNEL_ID = "-1002481582963"  # Replace with your channel ID
 
-# Cricket API (Replace with a valid source)
+# Cricket & Bookie API (Replace with working APIs)
 CRICKET_API_URL = "https://www.cricketlineguru.com/"  # Placeholder
 BOOKIE_API_URL = "https://www.southbook.in/"  # Placeholder
 
@@ -16,44 +15,55 @@ BOOKIE_API_URL = "https://www.southbook.in/"  # Placeholder
 bot = Bot(token=BOT_TOKEN)
 logging.basicConfig(level=logging.INFO)
 
-def get_cricket_updates():
+async def get_data(api_url):
+    """Fetch JSON data from an API."""
     try:
-        response = requests.get(CRICKET_API_URL)
-        if response.status_code == 200:
-            return response.json()  # Adjust parsing as per actual API
-    except Exception as e:
-        logging.error(f"Error fetching cricket updates: {e}")
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()  # Raise error if request fails
+        data = response.json()
+        if not data:  # Check if API returned empty data
+            raise ValueError("Empty API response")
+        return data
+    except requests.exceptions.RequestException as e:
+        logging.error(f"API Error ({api_url}): {e}")
+    except ValueError as e:
+        logging.error(f"Invalid API response: {e}")
     return None
 
-def get_bookie_ratings():
-    try:
-        response = requests.get(BOOKIE_API_URL)
-        if response.status_code == 200:
-            return response.json()  # Adjust parsing as per actual API
-    except Exception as e:
-        logging.error(f"Error fetching bookie ratings: {e}")
-    return None
+async def format_message():
+    """Format the Telegram message."""
+    cricket_data = await get_data(CRICKET_API_URL)
+    bookie_data = await get_data(BOOKIE_API_URL)
 
-def format_message(cricket_data, bookie_data):
+    if not cricket_data and not bookie_data:
+        return None  # No data to send
+
     message = "🏏 *Live Cricket Update* 🏏\n\n"
+    
     if cricket_data:
-        message += f"*Score:* {cricket_data.get('score', 'N/A')}\n"
-        message += f"*Over:* {cricket_data.get('over', 'N/A')}\n"
-        message += f"*Batsman:* {cricket_data.get('batsman', 'N/A')}\n"
-        message += f"*Bowler:* {cricket_data.get('bowler', 'N/A')}\n"
+        message += f"🏆 *Match:* {cricket_data.get('match', 'N/A')}\n"
+        message += f"🏏 *Score:* {cricket_data.get('score', 'N/A')}\n"
+        message += f"⚾ *Over:* {cricket_data.get('over', 'N/A')}\n"
+        message += f"🦸 *Batsman:* {cricket_data.get('batsman', 'N/A')}\n"
+        message += f"🎯 *Bowler:* {cricket_data.get('bowler', 'N/A')}\n"
+
     if bookie_data:
-        message += f"\n🎰 *Bookie Ratings* 🎰\n"
-        message += f"Odds: {bookie_data.get('odds', 'N/A')}\n"
+        message += "\n🎰 *Bookie Ratings* 🎰\n"
+        message += f"📊 *Odds:* {bookie_data.get('odds', 'N/A')}\n"
+
     return message
 
-def post_update():
+async def send_updates():
+    """Continuously send updates to the Telegram channel."""
     while True:
-        cricket_data = get_cricket_updates()
-        bookie_data = get_bookie_ratings()
-        message = format_message(cricket_data, bookie_data)
+        message = await format_message()
         if message:
-            bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
-        time.sleep(5)  # Fetch every 5 seconds
+            try:
+                await bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode="Markdown")
+                logging.info("✅ Message sent successfully")
+            except Exception as e:
+                logging.error(f"Telegram API Error: {e}")
+        await asyncio.sleep(2)  # Fetch data every 30 seconds
 
 if __name__ == "__main__":
-    post_update()
+    asyncio.run(send_updates())
