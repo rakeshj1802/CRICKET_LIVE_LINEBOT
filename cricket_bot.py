@@ -1,67 +1,87 @@
-import requests
-import time
-import logging
-from telegram import Bot
 import asyncio
+import logging
+import httpx
+from telegram import Bot
+from telegram.error import RetryAfter
 
-# Telegram Bot Credentials
+# Telegram Bot Token and Channel ID
 BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
-CHANNEL_ID = "-1002481582963"  # Your Telegram Channel ID
+CHANNEL_ID = "-1002481582963"
 
-# CricAPI Endpoint & API Key
-CRICKET_API_URL = "https://api.cricapi.com/v1/currentMatches"
-API_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
-
-# Initialize bot
+# Cricket API Endpoint (Change if needed)
+API_URL = "https://api.cricapi.com/v1/currentiplMatches"
+API_KEY="733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
+# Initialize the Telegram Bot
 bot = Bot(token=BOT_TOKEN)
-logging.basicConfig(level=logging.INFO)
 
-# Store the last known scores to avoid duplicate messages
-last_scores = {}
-
-def get_cricket_updates():
+async def get_cricket_updates():
+    """Fetch live IPL matches from the API."""
     try:
-        params = {"apikey": API_KEY}
-        response = requests.get(CRICKET_API_URL, params=params)
-        if response.status_code == 200:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(API_URL, timeout=10)
+            response.raise_for_status()
             data = response.json()
-            if data.get("status") == "success":
-                return data.get("data", [])  # List of matches
+
+            if not data or "matches" not in data:
+                logging.error("Invalid API response.")
+                return None
+
+            # Filter only IPL matches
+            ipl_matches = [match for match in data["matches"] if "IPL" in match.get("series", "")]
+
+            if not ipl_matches:
+                logging.info("No IPL matches found.")
+                return None
+
+            return ipl_matches
+
+    except httpx.HTTPStatusError as e:
+        logging.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
+    except httpx.RequestError as e:
+        logging.error(f"Request Error: {e}")
     except Exception as e:
-        logging.error(f"Error fetching cricket updates: {e}")
+        logging.error(f"Unexpected Error: {e}")
+
     return None
 
 def format_message(matches):
-    global last_scores
-    new_messages = []
-
+    """Format IPL match updates into readable messages."""
+    messages = []
     for match in matches:
-        match_id = match.get("id", "N/A")
-        match_name = match.get("name", "N/A")
-        status = match.get("status", "N/A")
-        score = "N/A"
-        
-        if 'score' in match:
-            score = f"{match['score'][0].get('runs', 'N/A')}/{match['score'][0].get('wickets', 'N/A')} in {match['score'][0].get('overs', 'N/A')} overs"
-        
-        # Check if score has changed
-        if match_id not in last_scores or last_scores[match_id] != score:
-            last_scores[match_id] = score
-            new_messages.append(f"🏏 *{match_name}* 🏏\n*Status:* {status}\n*Score:* {score}\n")
-
-    return new_messages
+        msg = (
+            f"🏏 *{match['team1']} vs {match['team2']}*\n"
+            f"📍 *Venue:* {match.get('venue', 'Unknown')}\n"
+            f"🕒 *Time:* {match.get('start_time', 'TBA')}\n"
+            f"📊 *Score:* {match.get('score', 'N/A')}\n"
+            f"🔗 *More Info:* {match.get('match_url', 'No link')}"
+        )
+        messages.append(msg)
+    return messages
 
 async def post_update():
+    """Send updates to Telegram while handling rate limits."""
     while True:
-        matches = get_cricket_updates()
+        matches = await get_cricket_updates()
+
+        if matches is None:  # Prevents crashes
+            logging.warning("No IPL match data. Retrying in 30 seconds...")
+            await asyncio.sleep(30)
+            continue
+
         new_messages = format_message(matches)
 
         if new_messages:
             for msg in new_messages:
-                await bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode="Markdown")
-        
-        await asyncio.sleep(300)  # Check every 5 minutes
+                try:
+                    await bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode="Markdown")
+                    await asyncio.sleep(5)  # Prevent flood limit
+                except RetryAfter as e:
+                    logging.warning(f"Flood control hit. Retrying in {e.retry_after} sec...")
+                    await asyncio.sleep(e.retry_after + 2)  # Wait before retrying
+
+        await asyncio.sleep(5)  # Fetch updates every 5 minutes
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(post_update())
