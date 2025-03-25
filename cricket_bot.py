@@ -9,7 +9,7 @@ BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 CHANNEL_ID = "-1002481582963"
 
 # Cricket API Details
-API_URL = "https://api.cricapi.com/v1/currentMatches"
+API_URL = "https://api.cricapi.com/v1/currentMatches?apikey=733fc7f6-fc1b-46e6-8f67-d45a01d44a6a&offset=0"
 API_KEY = "733fc7f6-fc1b-46e6-8f67-d45a01d44a6a"
 
 # Initialize Telegram Bot
