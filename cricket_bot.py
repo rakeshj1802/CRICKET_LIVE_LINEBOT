@@ -69,7 +69,7 @@ class IPLLiveScraper:
             }
 
     def extract_current_over_scorecard(self, soup):
-        """Extract detailed scorecard for the current over"""
+        """Extract detailed scorecard for the current over with comprehensive wicket detection"""
         try:
             # Find the overs timeline section
             overs_timeline = soup.find('div', class_='overs-timeline')
@@ -84,8 +84,30 @@ class IPLLiveScraper:
                 # Find all ball details
                 ball_elements = current_over_slide.find_all('div', class_=re.compile(r'ml-o-b-\d+'))
                 
-                # Extract ball details
-                ball_details = [ball.text.strip() for ball in ball_elements]
+                # Extract ball details with comprehensive wicket detection
+                ball_details = []
+                wicket_indicators = ['w', 'wkt', 'wicket', 'out']
+                
+                for ball in ball_elements:
+                    ball_text = ball.text.strip()
+                    
+                    # Comprehensive wicket detection
+                    def is_wicket_ball(text, classes):
+                        text_lower = text.lower()
+                        return any(
+                            indicator in text_lower or 
+                            (classes and any(indicator in str(cls).lower() for cls in classes))
+                            for indicator in wicket_indicators
+                        )
+                    
+                    # Check for wicket
+                    ball_classes = ball.get('class', [])
+                    parent_classes = ball.parent.get('class', []) if ball.parent else []
+                    
+                    if is_wicket_ball(ball_text, ball_classes) or is_wicket_ball(ball_text, parent_classes):
+                        ball_text = f"🔴 {ball_text} (WKT)"
+                    
+                    ball_details.append(ball_text)
                 
                 # Total runs for the over
                 total_runs_element = current_over_slide.find('div', class_='total')
@@ -253,7 +275,7 @@ class IPLLiveScraper:
                 if message:
                     await self.send_telegram_update(message)
                 
-                await asyncio.sleep(0)  # Update every minute
+                await asyncio.sleep(1)  # Update every minute
             
             except Exception as e:
                 logging.error(f"Main run error: {e}")
