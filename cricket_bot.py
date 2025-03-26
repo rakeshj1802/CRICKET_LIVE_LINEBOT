@@ -1,54 +1,85 @@
-import feedparser
-from telegram import Bot
 import requests
-from datetime import datetime
 import time
+from telegram import Bot
 
-# Telegram bot details
+# Telegram Bot Details
 TELEGRAM_BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
 TELEGRAM_CHANNEL_ID = "-1002481582963"
 
-# Default live feed URL
-_live_scores_xml = 'http://static.espncricinfo.com/rss/livescores.xml'
+# API Headers
+headers = {
+    "x-rapidapi-key": "7cf2d66dfcmshdb2e3038cee6474p13fa3ajsn8f43f7bc4ddd",
+    "x-rapidapi-host": "betfair-sports-casino-live-tv-result-odds.p.rapidapi.com"
+}
 
-class CricInfo:
-    def __init__(self, live_scores_xml=_live_scores_xml):
-        self.live_scores_xml = live_scores_xml
-        self.matches = []
+# Function to Send Message to Telegram
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHANNEL_ID,
+        "text": message
+    }
+    response = requests.post(url, json=payload)
+    return response.json()
 
-    def update_live_scores(self):
-        # Parse the RSS feed
-        feed = feedparser.parse(self.live_scores_xml)
-        for entry in feed.entries:
-            match = {
-                'title': entry.title,
-                'description': entry.description,
-                'link': entry.link,
-                'guid': entry.id
-            }
-            self.matches.append(match)
-
-    def __iter__(self):
-        return iter(self.matches)
-
-def send_to_telegram(matches):
-    # Initialize Telegram bot
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+# Function to Get IPL Event IDs
+def get_ipl_event_ids():
+    url = "https://betfair-sports-casino-live-tv-result-odds.p.rapidapi.com/api/result/event-list"
+    querystring = {"sid": "4"}  # "4" for Cricket
+    response = requests.get(url, headers=headers, params=querystring)
     
-    # Send match details to Telegram channel
-    for match in matches:
-        message = (
-            f"Title: {match['title']}\n"
-            f"Description: {match['description']}\n"
-            f"Link: {match['link']}\n"
-            f"GUID: {match['guid']}\n"
-        )
-        bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=message)
-
-if __name__ == '__main__':
-    # Instantiate and update live scores
-    matches = CricInfo()
-    matches.update_live_scores()
+    all_events = response.json().get("data", [])
     
-    # Send live match updates to Telegram
-    send_to_telegram(matches)
+    # Filter IPL Matches
+    ipl_events = [event for event in all_events if "IPL" in event.get("event_name", "")]
+    
+    return ipl_events
+
+# Function to Get Market ID for an Event
+def get_market_id(event_id):
+    url = "https://betfair-sports-casino-live-tv-result-odds.p.rapidapi.com/api/GetMarketOdds"
+    querystring = {"market_id": event_id}
+    response = requests.get(url, headers=headers, params=querystring)
+    
+    return response.json()
+
+# Function to Get Live Score for a Match
+def get_live_score(event_id):
+    url = "https://betfair-sports-casino-live-tv-result-odds.p.rapidapi.com/api/live-score"
+    querystring = {"eventid": event_id}
+    response = requests.get(url, headers=headers, params=querystring)
+    
+    return response.json()
+
+# Main Execution
+def main():
+    # Step 1: Get IPL Event IDs
+    print("\nFetching IPL Events...")
+    ipl_events = get_ipl_event_ids()
+
+    if not ipl_events:
+        print("❌ No IPL matches found!")
+        send_telegram_message("❌ No IPL matches found!")
+        return
+
+    for event in ipl_events:
+        event_name = event["event_name"]
+        event_id = event["event_id"]
+        print(f"✅ Match: {event_name} | Event ID: {event_id}")
+        send_telegram_message(f"🏏 **Live IPL Match**: {event_name} \n🎯 **Event ID**: {event_id}")
+
+        # Step 2: Get Market Odds
+        print("\nFetching Market Odds...")
+        market_odds = get_market_id(event_id)
+        send_telegram_message(f"💰 **Market Odds**: {market_odds}")
+
+        # Step 3: Get Live Score
+        print("\nFetching Live Score...")
+        live_score = get_live_score(event_id)
+        send_telegram_message(f"🔥 **Live Score Update**:\n{live_score}")
+
+        print("\n" + "="*50 + "\n")
+
+# Run the script
+if __name__ == "__main__":
+    main()
