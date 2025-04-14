@@ -1,294 +1,135 @@
+import os
 import asyncio
 import logging
-import requests
-from bs4 import BeautifulSoup
-from telegram import Bot
-from telegram.ext import Application
-import re
+import time
+from dotenv import load_dotenv
+from telethon import TelegramClient, events
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.types import PeerChannel
 
-# Configure logging
+# Configure detailed logging
 logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,  # Set to DEBUG for more detailed logs
+    datefmt='%H:%M:%S'
 )
+logger = logging.getLogger(__name__)
 
-# Telegram Bot Configuration
-BOT_TOKEN = "7721365750:AAGw66skneGqXXGy_B8xKoLiR8uDthayvrI"
-CHANNEL_ID = "-1002481582963"
+# Load environment variables
+load_dotenv()
 
-class IPLLiveScraper:
-    def __init__(self, bot_token, channel_id, match_url):
-        self.bot_token = bot_token
-        self.channel_id = channel_id
-        self.match_url = match_url
-        self.last_message = None
+# Configuration
+API_ID = int(os.getenv('API_ID', '21086177'))
+API_HASH = os.getenv('API_HASH', 'db1f0df82cd8d1e5e661a4f83eb1576e')
+SOURCE_CHANNEL = "FastestScores" # FastestScores
+DESTINATION_CHANNEL = "cricketanalyst02"
 
-    def get_headers(self):
-        return {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        }
+# Initialize the client
+client = TelegramClient('cricket_diagnostic_session', API_ID, API_HASH)
 
-    def parse_live_score_card(self, soup):
-        """Parse the live score card details"""
-        try:
-            # Find live score card
-            score_card = soup.find('div', class_='live-score-card')
-            
-            if not score_card:
-                return {
-                    'team_score': 'N/A',
-                    'run_rate': 'N/A',
-                    'match_status': 'N/A'
-                }
-
-            # Extract Team Score
-            team_score_elem = score_card.find('div', class_='team-score')
-            team_score = team_score_elem.find('span').text.strip() if team_score_elem else 'N/A'
-
-            # Extract Current Run Rate
-            run_rate_elem = score_card.find('span', class_='data')
-            run_rate = run_rate_elem.text.strip() if run_rate_elem else 'N/A'
-
-            # Extract Match Status
-            match_status_elem = score_card.find('div', class_='final-result')
-            match_status = match_status_elem.text.strip() if match_status_elem else 'N/A'
-
-            return {
-                'team_score': team_score,
-                'run_rate': run_rate,
-                'match_status': match_status
-            }
-
-        except Exception as e:
-            logging.error(f"Error parsing live score card: {e}")
-            return {
-                'team_score': 'N/A',
-                'run_rate': 'N/A',
-                'match_status': 'N/A'
-            }
-
-    def extract_current_over_scorecard(self, soup):
-        """Extract detailed scorecard for the current over with comprehensive wicket detection"""
-        try:
-            # Find the overs timeline section
-            overs_timeline = soup.find('div', class_='overs-timeline')
-            
-            if overs_timeline:
-                # Find the current over slide (usually the last slide)
-                current_over_slide = overs_timeline.find_all('div', class_='overs-slide')[-1]
-                
-                # Extract over number
-                over_number = current_over_slide.find('span').text.strip()
-                
-                # Find all ball details
-                ball_elements = current_over_slide.find_all('div', class_=re.compile(r'ml-o-b-\d+'))
-                
-                # Extract ball details with comprehensive wicket detection
-                ball_details = []
-                wicket_indicators = ['w', 'wkt', 'wicket', 'out']
-                
-                for ball in ball_elements:
-                    ball_text = ball.text.strip()
-                    
-                    # Comprehensive wicket detection
-                    def is_wicket_ball(text, classes):
-                        text_lower = text.lower()
-                        return any(
-                            indicator in text_lower or 
-                            (classes and any(indicator in str(cls).lower() for cls in classes))
-                            for indicator in wicket_indicators
-                        )
-                    
-                    # Check for wicket
-                    ball_classes = ball.get('class', [])
-                    parent_classes = ball.parent.get('class', []) if ball.parent else []
-                    
-                    if is_wicket_ball(ball_text, ball_classes) or is_wicket_ball(ball_text, parent_classes):
-                        ball_text = f"🔴 {ball_text} (WKT)"
-                    
-                    ball_details.append(ball_text)
-                
-                # Total runs for the over
-                total_runs_element = current_over_slide.find('div', class_='total')
-                total_runs = total_runs_element.text.strip() if total_runs_element else "N/A"
-                
-                # Format scorecard entry
-                scorecard_entry = f"SCORE CARD :- {total_runs}\n{' '.join(ball_details)}"
-                
-                return scorecard_entry
-            
-            return "No current over details available"
-
-        except Exception as e:
-            logging.error(f"Error parsing current over slide: {e}")
-            return "Error extracting current over details"
-
-    def scrape_live_score(self):
-        try:
-            response = requests.get(self.match_url, headers=self.get_headers())
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            # Parse live score card
-            live_score_info = self.parse_live_score_card(soup)
-
-            # Detailed Batsmen Information
-            batsmen_details = []
-            striker = None
-            batsmen_elements = soup.find_all('div', class_='batsmen-info-wrapper')
-            
-            for batsman_elem in batsmen_elements:
-                # Check for striker icon
-                strike_icon = batsman_elem.find('div', class_='circle-strike-icon')
-                
-                # Extract batsman name
-                name_elem = batsman_elem.find('a')
-                name = name_elem.find('p').text.strip() if name_elem else "Unknown"
-                
-                # Extract score details
-                score_elem = batsman_elem.find('div', class_='batsmen-score')
-                runs = score_elem.find_all('p')
-                
-                if len(runs) >= 2:
-                    batsman_info = f"{name} {runs[0].text}({runs[1].text})"
-                else:
-                    batsman_info = name
-                
-                # Identify striker
-                if strike_icon:
-                    striker = name
-                
-                batsmen_details.append(batsman_info)
-
-            # Bowler Detection
-            bowler = "No bowler info"
-            
-            # First, check for bowler in batsmen elements with bowling stats
-            bowler_elements = [elem for elem in batsmen_elements if 'bowler' in str(elem).lower()]
-            if bowler_elements:
-                bowler_name_elem = bowler_elements[0].find('a')
-                if bowler_name_elem:
-                    bowler = bowler_name_elem.find('p').text.strip()
-            
-            # If not found, check commentary
-            if bowler == "No bowler info":
-                commentary_elements = soup.find_all('span', class_='cm-b-comment-c1')
-                for elem in commentary_elements:
-                    if 'to' in elem.text:
-                        potential_bowler = elem.text.split('to')[0].strip()
-                        if potential_bowler:
-                            bowler = potential_bowler
-                            break
-
-            # Match Odds Detection
-            match_odds = []
-            
-            # Look for odds in the odds section
-            odds_section = soup.find('div', class_='odds-session-left')
-            if odds_section:
-                # Find favorite team odds
-                fav_odd = odds_section.find('div', class_='fav-odd')
-                if fav_odd:
-                    team_name = fav_odd.find('span', class_='rate-team-full-name')
-                    odds_values = fav_odd.find_all('div', class_='odd')
-                    
-                    if team_name and odds_values:
-                        team = team_name.text.strip()
-                        odds = [val.text.strip() for val in odds_values]
-                        match_odds.append(f"Fav {team}: {' | '.join(odds)}")
-            
-            # Fallback to popup odds if not found
-            if not match_odds:
-                odds_popup = soup.find('div', class_='oddSessionInProgress')
-                if odds_popup:
-                    team = odds_popup.find_all('div')[0].text.strip()
-                    odds = [div.text.strip() for div in odds_popup.find_all('div')[1:]]
-                    match_odds.append(f"Fav {team}: {' | '.join(odds)}")
-
-            # Win Probability
-            probabilities = []
-            probability_popup = soup.find('div', class_='overlayPopup')
-            if probability_popup:
-                prob_view = probability_popup.find('div', class_='progressBarWrapper')
-                if prob_view:
-                    team_probs = prob_view.find_all('div', class_='teamName')
-                    for team_prob in team_probs:
-                        team = team_prob.find_all('div')[0].text.strip()
-                        prob = team_prob.find_all('div')[1].text.strip()
-                        probabilities.append(f"{team}: {prob}")
-
-            # Extract current over scorecard
-            current_over_scorecard = self.extract_current_over_scorecard(soup)
-
-            # Prepare message
-            message = f"""
-🏏 Live Match Update 🏏
-
-📊 RR: {live_score_info['team_score']}
-🏃 Current Run Rate: {live_score_info['run_rate']}
-
-📝 Match Status: {live_score_info['match_status']}
-
-🏏 Batsmen:
-{' | '.join(batsmen_details)}
-
-🎯 Current Striker: {striker or 'Not identified'}
-
-🎯 Current Bowler: {bowler}
-
-🏆 Match Odds:
-{' | '.join(match_odds) if match_odds else 'No odds available'}
-
-📊 Win Probability:
-{' | '.join(probabilities) if probabilities else 'No probability data'}
-
-📈 Current Over Scorecard:
-{current_over_scorecard}
-            """
-
-            return message
-
-        except Exception as e:
-            logging.error(f"Comprehensive Scraping Error: {e}")
-            return None
-
-    async def send_telegram_update(self, message):
-        try:
-            bot = Bot(token=self.bot_token)
-            
-            if message and message != self.last_message:
-                await bot.send_message(
-                    chat_id=self.channel_id, 
-                    text=message,
-                    parse_mode='Markdown'
-                )
-                self.last_message = message
-                logging.info("Telegram message sent successfully")
-        except Exception as e:
-            logging.error(f"Telegram sending error: {e}")
-
-    async def run(self):
-        while True:
-            try:
-                message = self.scrape_live_score()
-                
-                if message:
-                    await self.send_telegram_update(message)
-                
-                await asyncio.sleep(1)  # Update every minute
-            
-            except Exception as e:
-                logging.error(f"Main run error: {e}")
-                await asyncio.sleep(0)
+async def get_recent_messages(channel, limit=5):
+    """Get recent messages from a channel for testing"""
+    messages = []
+    async for message in client.iter_messages(channel, limit=limit):
+        messages.append(message)
+    return messages
 
 async def main():
-    MATCH_URL = "https://crex.live/scoreboard/T2Z/1PD/6th-Match/J/M/kkr-vs-rr-6th-match-indian-premier-league-2025/live"
+    # Start the client
+    await client.start()
+    logger.info("Client started")
     
-    scraper = IPLLiveScraper(BOT_TOKEN, CHANNEL_ID, MATCH_URL)
+    # Diagnostic information
+    me = await client.get_me()
+    logger.info(f"Logged in as: {me.first_name} (ID: {me.id})")
     
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Get entity information for the channels
+    try:
+        # For source channel
+        try:
+            source_entity = await client.get_entity(SOURCE_CHANNEL)
+            logger.info(f"Connected to source: {getattr(source_entity, 'title', SOURCE_CHANNEL)} (ID: {source_entity.id})")
+            
+            # Check if we can access messages
+            logger.info("Checking access to source channel messages...")
+            recent_messages = await get_recent_messages(source_entity, 3)
+            if recent_messages:
+                logger.info(f"Successfully retrieved {len(recent_messages)} messages from source channel")
+                for msg in recent_messages:
+                    logger.info(f"Message ID: {msg.id}, Date: {msg.date}, Text: {msg.text[:50]}...")
+            else:
+                logger.warning("No recent messages found in source channel")
+                
+        except Exception as e:
+            logger.error(f"Error accessing source channel: {e}")
+            return
+            
+        # For destination channel
+        try:
+            dest_entity = await client.get_entity(DESTINATION_CHANNEL)
+            logger.info(f"Connected to destination: {getattr(dest_entity, 'title', DESTINATION_CHANNEL)} (ID: {dest_entity.id})")
+            
+            # Check if we can post messages
+            logger.info("Testing ability to post to destination channel...")
+            try:
+                test_msg = await client.send_message(
+                    dest_entity,
+                    "🔍 Diagnostic test message\n\n" +
+                    "This message confirms that the bot can post to this channel.\n" +
+                    f"Time: {time.strftime('%H:%M:%S')}"
+                )
+                logger.info(f"Test message sent successfully! Message ID: {test_msg.id}")
+            except Exception as e:
+                logger.error(f"Failed to send test message: {e}")
+                logger.error("Make sure your account has permission to post in the destination channel")
+                return
+                
+        except Exception as e:
+            logger.error(f"Error accessing destination channel: {e}")
+            return
+    except Exception as e:
+        logger.error(f"Error setting up channels: {e}")
+        return
     
-    await scraper.run()
+    # Set up message forwarding with detailed logging
+    @client.on(events.NewMessage(chats=source_entity))
+    async def forward_message(event):
+        logger.info(f"New message detected in source channel! ID: {event.message.id}")
+        try:
+            logger.info(f"Message content: {event.message.text[:50]}...")
+            logger.info("Attempting to forward message...")
+            
+            # Forward the message
+            result = await client.send_message(dest_entity, event.message)
+            
+            logger.info(f"Message forwarded successfully! New message ID: {result.id}")
+        except Exception as e:
+            logger.error(f"Error forwarding message: {e}")
+    
+    # Manual test - try to forward the most recent message
+    try:
+        logger.info("Performing manual test - forwarding most recent message...")
+        recent = await get_recent_messages(source_entity, 1)
+        if recent:
+            msg = recent[0]
+            logger.info(f"Found message: {msg.text[:50]}...")
+            result = await client.send_message(dest_entity, msg)
+            logger.info(f"Manual test successful! Forwarded message ID: {result.id}")
+        else:
+            logger.warning("No messages found for manual test")
+    except Exception as e:
+        logger.error(f"Manual forwarding test failed: {e}")
+    
+    logger.info("=== DIAGNOSTIC COMPLETE ===")
+    logger.info("Now monitoring for new messages...")
+    logger.info("The forwarder is active. Any new messages in the source channel should be forwarded.")
+    logger.info("Press Ctrl+C to stop.")
+    
+    # Keep the script running
+    await client.run_until_disconnected()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Exiting due to keyboard interrupt")
